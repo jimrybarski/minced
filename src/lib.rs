@@ -1,7 +1,9 @@
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_until},
-    character::complete::{alpha1, char, digit1, line_ending, multispace1, not_line_ending},
+    character::complete::{
+        alpha1, char, digit1, line_ending, multispace0, multispace1, not_line_ending,
+    },
     multi::{many0, many1},
     sequence::{pair, separated_pair, tuple},
     IResult,
@@ -60,9 +62,25 @@ pub fn parse(input: &str) -> Result<Vec<Array>, MincedError> {
     }
 }
 
+fn parse_table_header_line(input: &str) -> IResult<&str, ()> {
+    let result = tuple((
+        tag("POSITION"),
+        multispace1,
+        tag("REPEAT"),
+        multispace1,
+        tag("SPACER"),
+        multispace0,
+    ))(input);
+    match result {
+        Ok((remainder, _)) => Ok((remainder, ())),
+        Err(e) => Err(e),
+    }
+}
+
+fn parse_contig_arrays(input: &str) -> IResult<&str, Vec<Array>> {}
+
 fn parse_array(input: &str) -> IResult<&str, Array> {
     let result = tuple((
-        parse_header,
         skip_one_line,
         skip_one_line,
         skip_one_line,
@@ -305,6 +323,32 @@ CRISPR 1   Range: 1214 - 1776";
         };
         let (_, actual) = parse_repeat_line(input).unwrap();
         assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_parse_contig_arrays() {
+        let input = r"Sequence 'MGYG000242676_4' (164254 bp)
+
+CRISPR 3   Range: 60487 - 61025
+POSITION	REPEAT				SPACER
+--------	------------------------------------	--------------------------
+60487		TTTAATAACCCTATATAATTTCTACTATTGTAGATA	TCTCCTTTGTAACTTCTTTGATTCGG	[ 36, 26 ]
+60549		TTTAATAACCCTATATAATTTCTACTGTCGTAGATA	TTGTTCTTTTATATGTGTACATAGCTAGA	[ 36, 29 ]
+60990		TTTAATAACCCTATATAATTTCTACTTTTTTGATTA	
+--------	------------------------------------	--------------------------
+Repeats: 9	Average Length: 36		Average Length: 26
+
+CRISPR 4   Range: 157550 - 157915
+POSITION	REPEAT				SPACER
+--------	------------------------------------	------------------------------
+157550		GTTTTACTACCTTATAGATTTACACTATTCTCAAAC	GAGGGGTTGTCCTTCATGTACTCTTTACCT	[ 36, 30 ]
+157748		GTTTTACTACCTTATAGATTTACACTATTCTCAAAC	GGGCTTATACTCTGACTTTCAACAAGTTAG	[ 36, 30 ]
+157814		GTTTTACTACCTTATAGATTTACACTATTCTCAAAC	CCGATTTTTTCATTGCCAAAACGATATTTT	[ 36, 30 ]
+157880		GTTTTACTACCTTATAGATTTACACTATTCTCAAAC	
+--------	------------------------------------	------------------------------
+Repeats: 6	Average Length: 36		Average Length: 30
+
+Time to find repeats: 22 ms";
     }
 
     #[test]
