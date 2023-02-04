@@ -62,48 +62,24 @@ pub fn parse(input: &str) -> Result<Vec<Array>, MincedError> {
     }
 }
 
-fn parse_table_header_line(input: &str) -> IResult<&str, ()> {
-    let result = tuple((
-        tag("POSITION"),
-        multispace1,
-        tag("REPEAT"),
-        multispace1,
-        tag("SPACER"),
-        multispace0,
-    ))(input);
-    match result {
-        Ok((remainder, _)) => Ok((remainder, ())),
-        Err(e) => Err(e),
-    }
+fn parse_contig_arrays(input: &str) -> IResult<&str, Vec<Array>> {
+    let result = tuple((parse_accession_line, many1(parse_array), parse_footer))(input);
 }
 
-fn parse_contig_arrays(input: &str) -> IResult<&str, Vec<Array>> {}
-
-fn parse_array(input: &str) -> IResult<&str, Array> {
+fn parse_array(input: &str) -> IResult<&str, (Header, Vec<RepeatSpacer>)> {
     let result = tuple((
-        skip_one_line,
+        skip_empty_line,
+        parse_array_header,
         skip_one_line,
         skip_one_line,
         many1(parse_repeat_line),
         skip_one_line,
         skip_one_line,
-        skip_empty_line,
-        skip_one_line,
-        skip_empty_line,
-        skip_empty_line,
     ))(input);
     match result {
-        Ok((remainder, (header, _, _, _, repeat_spacers, _, _, _, _, _, _))) => Ok((
-            remainder,
-            Array {
-                accession: header.accession,
-                bp: header.bp,
-                order: header.order,
-                start: header.start,
-                end: header.end,
-                repeat_spacers,
-            },
-        )),
+        Ok((remainder, (_, header, _, _, repeat_spacers, _, _))) => {
+            Ok((remainder, (header, repeat_spacers)))
+        }
         Err(e) => Err(e),
     }
 }
@@ -166,26 +142,26 @@ fn parse_accession_line(input: &str) -> IResult<&str, (&str, usize)> {
     separated_pair(parse_accession, char(' '), parse_bp)(input)
 }
 
-fn parse_order_line(input: &str) -> IResult<&str, (usize, (usize, usize))> {
+fn parse_array_header(input: &str) -> IResult<&str, (usize, (usize, usize))> {
     separated_pair(parse_crispr_order, multispace1, parse_crispr_range)(input)
 }
 
-fn parse_header(input: &str) -> IResult<&str, Header> {
-    let result = separated_pair(parse_accession_line, multispace1, parse_order_line)(input);
-    match result {
-        Ok((remaining, ((accession, bp), (order, (start, end))))) => Ok((
-            remaining,
-            Header {
-                accession,
-                bp,
-                order,
-                start,
-                end,
-            },
-        )),
-        Err(e) => Err(e),
-    }
-}
+// fn parse_header(input: &str) -> IResult<&str, Header> {
+//     let result = separated_pair(parse_accession_line, multispace1)(input);
+//     match result {
+//         Ok((remaining, ((accession, bp), (order, (start, end))))) => Ok((
+//             remaining,
+//             Header {
+//                 accession,
+//                 bp,
+//                 order,
+//                 start,
+//                 end,
+//             },
+//         )),
+//         Err(e) => Err(e),
+//     }
+// }
 
 fn parse_repeat_line(input: &str) -> IResult<&str, RepeatSpacer> {
     alt((parse_repeat_spacer_line, parse_repeat_only_line))(input)
