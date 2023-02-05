@@ -9,22 +9,8 @@ use nom::{
     IResult,
 };
 
-#[derive(Debug)]
-pub struct MincedError {}
-
-#[derive(Debug, PartialEq)]
-struct Header<'a> {
-    /// accession of the genome/contig that contains the arrays
-    accession: &'a str,
-    /// size of the genome/contig in base pairs
-    bp: usize,
-    /// The nth CRISPR array in this genome/contig
-    order: usize,
-    /// zero-indexed inclusive start coordinate
-    start: usize,
-    /// zero-indexed exclusive end coordinate
-    end: usize,
-}
+// #[derive(Debug)]
+// pub struct MincedError {}
 
 #[derive(Debug, PartialEq)]
 pub struct RepeatSpacer<'a> {
@@ -40,10 +26,6 @@ pub struct RepeatSpacer<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct Array<'a> {
-    /// accession of the genome/contig that contains the arrays
-    pub accession: &'a str,
-    /// size of the genome/contig in base pairs
-    pub bp: usize,
     /// The nth CRISPR array in this genome/contig
     pub order: usize,
     /// zero-indexed inclusive start coordinate
@@ -54,32 +36,39 @@ pub struct Array<'a> {
     pub repeat_spacers: Vec<RepeatSpacer<'a>>,
 }
 
-pub fn parse(input: &str) -> Result<Vec<Array>, MincedError> {
-    let result = many0(parse_array)(input);
-    match result {
-        Ok((_, arrays)) => Ok(arrays),
-        Err(_) => Err(MincedError {}),
-    }
-}
+// pub fn parse(input: &str) -> Result<Vec<Array>, MincedError> {
+//     let result = many0(parse_array)(input);
+//     match result {
+//         Ok((_, arrays)) => Ok(arrays),
+//         Err(_) => Err(MincedError {}),
+//     }
+// }
 
-fn parse_contig_arrays(input: &str) -> IResult<&str, Vec<Array>> {
-    let result = tuple((parse_accession_line, many1(parse_array), parse_footer))(input);
-}
+// fn parse_contig_arrays(input: &str) -> IResult<&str, Vec<Array>> {
+//     let result = tuple((parse_accession_line, many1(parse_array), parse_footer))(input);
+// }
 
-fn parse_array(input: &str) -> IResult<&str, (Header, Vec<RepeatSpacer>)> {
+fn parse_array(input: &str) -> IResult<&str, Array> {
     let result = tuple((
         skip_empty_line,
-        parse_array_header,
+        parse_crispr_order_and_coordinates,
+        skip_empty_line,
         skip_one_line,
         skip_one_line,
-        many1(parse_repeat_line),
+        many1(parse_repeat_spacer_line),
         skip_one_line,
         skip_one_line,
     ))(input);
     match result {
-        Ok((remainder, (_, header, _, _, repeat_spacers, _, _))) => {
-            Ok((remainder, (header, repeat_spacers)))
-        }
+        Ok((remainder, (_, (order, start, end), _, _, _, repeat_spacers, _, _))) => Ok((
+            remainder,
+            Array {
+                order,
+                start,
+                end,
+                repeat_spacers,
+            },
+        )),
         Err(e) => Err(e),
     }
 }
@@ -100,20 +89,23 @@ fn skip_empty_line(input: &str) -> IResult<&str, ()> {
     }
 }
 
-fn parse_crispr_order(input: &str) -> IResult<&str, usize> {
-    let result = separated_pair(tag("CRISPR"), char(' '), digit1)(input);
+fn parse_crispr_order_and_coordinates(input: &str) -> IResult<&str, (usize, usize, usize)> {
+    let result = tuple((
+        tag("CRISPR"),
+        char(' '),
+        digit1,
+        multispace1,
+        tag("Range:"),
+        char(' '),
+        digit1,
+        tag(" - "),
+        digit1,
+    ))(input);
     match result {
-        Ok((remaining, (_, raw_order))) => Ok((remaining, raw_order.parse::<usize>().unwrap())),
-        Err(e) => Err(e),
-    }
-}
-
-fn parse_crispr_range(input: &str) -> IResult<&str, (usize, usize)> {
-    let result = tuple((tag("Range:"), char(' '), digit1, tag(" - "), digit1))(input);
-    match result {
-        Ok((remaining, (_, _, start, _, end))) => Ok((
+        Ok((remaining, (_, _, raw_order, _, _, _, start, _, end))) => Ok((
             remaining,
             (
+                raw_order.parse::<usize>().unwrap() - 1,
                 start.parse::<usize>().unwrap() - 1,
                 end.parse::<usize>().unwrap(),
             ),
@@ -122,52 +114,64 @@ fn parse_crispr_range(input: &str) -> IResult<&str, (usize, usize)> {
     }
 }
 
-fn parse_bp(input: &str) -> IResult<&str, usize> {
-    let result = tuple((tag("("), take_until(" "), tag(" bp)")))(input);
-    match result {
-        Ok((remaining, (_, bp, _))) => Ok((remaining, bp.parse::<usize>().unwrap())),
-        Err(e) => Err(e),
-    }
-}
-
-fn parse_accession(input: &str) -> IResult<&str, &str> {
-    let result = tuple((tag("Sequence '"), take_until("'"), tag("'")))(input);
-    match result {
-        Ok((remaining, (_, accession, _))) => Ok((remaining, accession)),
-        Err(e) => Err(e),
-    }
-}
-
-fn parse_accession_line(input: &str) -> IResult<&str, (&str, usize)> {
-    separated_pair(parse_accession, char(' '), parse_bp)(input)
-}
-
-fn parse_array_header(input: &str) -> IResult<&str, (usize, (usize, usize))> {
-    separated_pair(parse_crispr_order, multispace1, parse_crispr_range)(input)
-}
-
-// fn parse_header(input: &str) -> IResult<&str, Header> {
-//     let result = separated_pair(parse_accession_line, multispace1)(input);
+// fn parse_crispr_range(input: &str) -> IResult<&str, (usize, usize)> {
+//     let result = tuple((tag("Range:"), char(' '), digit1, tag(" - "), digit1))(input);
 //     match result {
-//         Ok((remaining, ((accession, bp), (order, (start, end))))) => Ok((
+//         Ok((remaining, (_, _, start, _, end))) => Ok((
 //             remaining,
-//             Header {
-//                 accession,
-//                 bp,
-//                 order,
-//                 start,
-//                 end,
-//             },
+//             (
+//                 start.parse::<usize>().unwrap() - 1,
+//                 end.parse::<usize>().unwrap(),
+//             ),
 //         )),
 //         Err(e) => Err(e),
 //     }
 // }
 
-fn parse_repeat_line(input: &str) -> IResult<&str, RepeatSpacer> {
-    alt((parse_repeat_spacer_line, parse_repeat_only_line))(input)
+fn parse_accession_line(input: &str) -> IResult<&str, (&str, usize)> {
+    let result = tuple((
+        tag("Sequence '"),
+        take_until("'"),
+        tag("'"),
+        char(' '),
+        tag("("),
+        take_until(" "),
+        tag(" bp)"),
+    ))(input);
+    match result {
+        Ok((remainder, (_, accession, _, _, _, bp, _))) => {
+            Ok((remainder, (accession, bp.parse::<usize>().unwrap())))
+        }
+        Err(e) => Err(e),
+    }
 }
 
-fn parse_repeat_only_line(input: &str) -> IResult<&str, RepeatSpacer> {
+// fn parse_array_header(input: &str) -> IResult<&str, (usize, (usize, usize))> {
+//     separated_pair(parse_crispr_order, multispace1, parse_crispr_range)(input)
+// }
+
+// // fn parse_header(input: &str) -> IResult<&str, Header> {
+// //     let result = separated_pair(parse_accession_line, multispace1)(input);
+// //     match result {
+// //         Ok((remaining, ((accession, bp), (order, (start, end))))) => Ok((
+// //             remaining,
+// //             Header {
+// //                 accession,
+// //                 bp,
+// //                 order,
+// //                 start,
+// //                 end,
+// //             },
+// //         )),
+// //         Err(e) => Err(e),
+// //     }
+// // }
+
+fn parse_repeat_spacer_line(input: &str) -> IResult<&str, RepeatSpacer> {
+    alt((parse_repeat_with_spacer, parse_repeat_only))(input)
+}
+
+fn parse_repeat_only(input: &str) -> IResult<&str, RepeatSpacer> {
     let result = tuple((digit1, multispace1, alpha1, multispace1))(input);
     match result {
         Ok((remaining, (raw_start, _, repeat, _))) => {
@@ -178,7 +182,7 @@ fn parse_repeat_only_line(input: &str) -> IResult<&str, RepeatSpacer> {
                     repeat,
                     spacer: None,
                     start,
-                    end: start + repeat.len() + 1,
+                    end: start + repeat.len(),
                 },
             ))
         }
@@ -186,7 +190,7 @@ fn parse_repeat_only_line(input: &str) -> IResult<&str, RepeatSpacer> {
     }
 }
 
-fn parse_repeat_spacer_line(input: &str) -> IResult<&str, RepeatSpacer> {
+fn parse_repeat_with_spacer(input: &str) -> IResult<&str, RepeatSpacer> {
     let result = tuple((
         digit1,
         multispace1,
@@ -198,6 +202,7 @@ fn parse_repeat_spacer_line(input: &str) -> IResult<&str, RepeatSpacer> {
     ))(input);
     match result {
         Ok((remaining, (raw_start, _, repeat, _, spacer, _, _))) => {
+            dbg!("{raw_start} {repeat} {spacer}");
             let start = raw_start.parse::<usize>().unwrap() - 1;
             Ok((
                 remaining,
@@ -205,7 +210,7 @@ fn parse_repeat_spacer_line(input: &str) -> IResult<&str, RepeatSpacer> {
                     repeat,
                     spacer: Some(spacer),
                     start,
-                    end: start + repeat.len() + spacer.len() + 1,
+                    end: start + repeat.len() + spacer.len(),
                 },
             ))
         }
@@ -217,46 +222,88 @@ fn parse_repeat_spacer_line(input: &str) -> IResult<&str, RepeatSpacer> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_parse_header() {
-        let input = r"Sequence 'GUT_GENOME226819_47' (4332 bp)
+    // Here is a real file and the python coordinates for those sequences.
+    // For the range, we should return: (start - 1, end)
+    // For each repeat-spacer, we should return (start - 1, start - 1 + length(repeat+spacer)
+    // Sequence 'MGYG000166779_38' (12280 bp)
 
-CRISPR 1   Range: 1214 - 1776";
-        let expected = Header {
-            accession: "GUT_GENOME226819_47",
-            bp: 4332,
-            order: 1,
-            start: 1213,
-            end: 1776,
+    // CRISPR 1   Range: 10648 - 10814
+    // POSITION	REPEAT				SPACER
+    // --------	-----------------------------	----------------------------------------
+    // 10648		CAAGTGCACCAACCAATCTCACCACCTCA	GGGGGTGCACTTAAAGGGGGTGCACTTGTCTCAAGTGCACCAAGAA	[ 29, 46 ]
+    // 10723		CAAGTGCACCAACCAATCTCACCACCTCA   CCATCTCACCACCTCTCAGGGGGTGCAGTTGTCT	[ 29, 34 ]
+    // 10786		CAAGTGCACCAACCAATCTCACCACCTCA
+    // --------	-----------------------------	----------------------------------------
+    // Repeats: 3	Average Length: 29		Average Length: 40
+    //     In [18]: str(fna[10722:10785].seq)
+    // Out[18]: 'CAAGTGCACCAACCAATCTCACCACCTCACCATCTCACCACCTCTCAGGGGGTGCAGTTGTCT'
+
+    // In [19]: str(fna[10647:10814].seq)
+    // Out[19]: 'CAAGTGCACCAACCAATCTCACCACCTCAGGGGGTGCACTTAAAGGGGGTGCACTTGTCTCAAGTGCACCAAGAACAAGTGCACCAACCAATCTCACCACCTCACCATCTCACCACCTCTCAGGGGGTGCAGTTGTCTCAAGTGCACCAACCAATCTCACCACCTCA'
+
+    #[test]
+    fn test_parse_array() {
+        let input = "\nCRISPR 1   Range: 10648 - 10814
+POSITION        REPEAT                          SPACER
+--------        -----------------------------   ----------------------------------------
+10648           CAAGTGCACCAACCAATCTCACCACCTCA   GGGGGTGCACTTAAAGGGGGTGCACTTGTCTCAAGTGCACCAAGAA  [ 29, 46 ]
+10723           CAAGTGCACCAACCAATCTCACCACCTCA   CCATCTCACCACCTCTCAGGGGGTGCAGTTGTCT      [ 29, 34 ]
+10786           CAAGTGCACCAACCAATCTCACCACCTCA
+--------        -----------------------------   ----------------------------------------
+Repeats: 3      Average Length: 29              Average Length: 40\n";
+        let expected = Array {
+            order: 0,
+            start: 10647,
+            end: 10814,
+            repeat_spacers: vec![
+                RepeatSpacer {
+                    start: 10647,
+                    end: 10722,
+                    repeat: "CAAGTGCACCAACCAATCTCACCACCTCA",
+                    spacer: Some("GGGGGTGCACTTAAAGGGGGTGCACTTGTCTCAAGTGCACCAAGAA"),
+                },
+                RepeatSpacer {
+                    start: 10722,
+                    end: 10785,
+                    repeat: "CAAGTGCACCAACCAATCTCACCACCTCA",
+                    spacer: Some("CCATCTCACCACCTCTCAGGGGGTGCAGTTGTCT"),
+                },
+                RepeatSpacer {
+                    start: 10785,
+                    end: 10814,
+                    repeat: "CAAGTGCACCAACCAATCTCACCACCTCA",
+                    spacer: None,
+                },
+            ],
         };
-        let (_, actual) = parse_header(input).unwrap();
+        let (_, actual) = parse_array(input).unwrap();
         assert_eq!(expected, actual);
     }
 
     #[test]
-    fn test_parse_accession() {
-        let input = "Sequence 'GUT_GENOME226819_47'";
-        let expected = "GUT_GENOME226819_47";
-        let (_, actual) = parse_accession(input).unwrap();
+    fn test_parse_crispr_order_and_coordinates() {
+        let input = r"CRISPR 1   Range: 1214 - 1776";
+        let expected = (0, 1213, 1776);
+        let (_, actual) = parse_crispr_order_and_coordinates(input).unwrap();
         assert_eq!(expected, actual);
     }
 
     #[test]
-    fn test_parse_bp() {
-        let input = "(4332 bp)";
-        let expected = 4332usize;
-        let (_, actual) = parse_bp(input).unwrap();
+    fn test_parse_accession_line() {
+        let input = "Sequence 'MGYG000166779_38' (12280 bp)";
+        let expected = ("MGYG000166779_38", 12280);
+        let (_, actual) = parse_accession_line(input).unwrap();
         assert_eq!(expected, actual);
     }
 
     #[test]
     fn test_parse_repeat_spacer() {
-        let input = "1214            TGGTTTAGTTTTAGATGATTCTACTTTTA   CTAATAACACTGCTAAGATTGGTGGTGCAATTTATAACTCTGCTGA  [ 29, 46 ]\n";
+        let input = "10723           CAAGTGCACCAACCAATCTCACCACCTCA   CCATCTCACCACCTCTCAGGGGGTGCAGTTGTCT      [ 29, 34 ]\n";
         let expected = RepeatSpacer {
-            repeat: "TGGTTTAGTTTTAGATGATTCTACTTTTA",
-            spacer: Some("CTAATAACACTGCTAAGATTGGTGGTGCAATTTATAACTCTGCTGA"),
-            start: 1213,
-            end: 1289,
+            repeat: "CAAGTGCACCAACCAATCTCACCACCTCA",
+            spacer: Some("CCATCTCACCACCTCTCAGGGGGTGCAGTTGTCT"),
+            start: 10722,
+            end: 10785,
         };
         let (_, actual) = parse_repeat_spacer_line(input).unwrap();
         assert_eq!(expected, actual);
@@ -264,146 +311,120 @@ CRISPR 1   Range: 1214 - 1776";
 
     #[test]
     fn test_parse_repeat_only_line() {
-        let input = "1748            TGATTTACAAGTTACTAACTCTGCATTTG\n";
+        let input = "10786		CAAGTGCACCAACCAATCTCACCACCTCA\n";
         let expected = RepeatSpacer {
-            repeat: "TGATTTACAAGTTACTAACTCTGCATTTG",
+            repeat: "CAAGTGCACCAACCAATCTCACCACCTCA",
             spacer: None,
-            start: 1747,
-            end: 1777,
+            start: 10785,
+            end: 10814,
         };
-        let (_, actual) = parse_repeat_only_line(input).unwrap();
+        let (_, actual) = parse_repeat_spacer_line(input).unwrap();
         assert_eq!(expected, actual);
     }
 
-    #[test]
-    fn test_parse_repeat_line_with_spacer() {
-        let input = "1214            TGGTTTAGTTTTAGATGATTCTACTTTTA   CTAATAACACTGCTAAGATTGGTGGTGCAATTTATAACTCTGCTGA  [ 29, 46 ]\n";
-        let expected = RepeatSpacer {
-            repeat: "TGGTTTAGTTTTAGATGATTCTACTTTTA",
-            spacer: Some("CTAATAACACTGCTAAGATTGGTGGTGCAATTTATAACTCTGCTGA"),
-            start: 1213,
-            end: 1289,
-        };
-        let (_, actual) = parse_repeat_line(input).unwrap();
-        assert_eq!(expected, actual);
-    }
+    //     #[test]
+    //     fn test_parse_contig_arrays() {
+    //         let input = r"Sequence 'MGYG000242676_4' (164254 bp)
 
-    #[test]
-    fn test_parse_repeat_line_without_spacer() {
-        let input = "1748            TGATTTACAAGTTACTAACTCTGCATTTG\n";
-        let expected = RepeatSpacer {
-            repeat: "TGATTTACAAGTTACTAACTCTGCATTTG",
-            spacer: None,
-            start: 1747,
-            end: 1777,
-        };
-        let (_, actual) = parse_repeat_line(input).unwrap();
-        assert_eq!(expected, actual);
-    }
+    // CRISPR 3   Range: 60487 - 61025
+    // POSITION	REPEAT				SPACER
+    // --------	------------------------------------	--------------------------
+    // 60487		TTTAATAACCCTATATAATTTCTACTATTGTAGATA	TCTCCTTTGTAACTTCTTTGATTCGG	[ 36, 26 ]
+    // 60549		TTTAATAACCCTATATAATTTCTACTGTCGTAGATA	TTGTTCTTTTATATGTGTACATAGCTAGA	[ 36, 29 ]
+    // 60990		TTTAATAACCCTATATAATTTCTACTTTTTTGATTA
+    // --------	------------------------------------	--------------------------
+    // Repeats: 9	Average Length: 36		Average Length: 26
 
-    #[test]
-    fn test_parse_contig_arrays() {
-        let input = r"Sequence 'MGYG000242676_4' (164254 bp)
+    // CRISPR 4   Range: 157550 - 157915
+    // POSITION	REPEAT				SPACER
+    // --------	------------------------------------	------------------------------
+    // 157550		GTTTTACTACCTTATAGATTTACACTATTCTCAAAC	GAGGGGTTGTCCTTCATGTACTCTTTACCT	[ 36, 30 ]
+    // 157748		GTTTTACTACCTTATAGATTTACACTATTCTCAAAC	GGGCTTATACTCTGACTTTCAACAAGTTAG	[ 36, 30 ]
+    // 157814		GTTTTACTACCTTATAGATTTACACTATTCTCAAAC	CCGATTTTTTCATTGCCAAAACGATATTTT	[ 36, 30 ]
+    // 157880		GTTTTACTACCTTATAGATTTACACTATTCTCAAAC
+    // --------	------------------------------------	------------------------------
+    // Repeats: 6	Average Length: 36		Average Length: 30
 
-CRISPR 3   Range: 60487 - 61025
-POSITION	REPEAT				SPACER
---------	------------------------------------	--------------------------
-60487		TTTAATAACCCTATATAATTTCTACTATTGTAGATA	TCTCCTTTGTAACTTCTTTGATTCGG	[ 36, 26 ]
-60549		TTTAATAACCCTATATAATTTCTACTGTCGTAGATA	TTGTTCTTTTATATGTGTACATAGCTAGA	[ 36, 29 ]
-60990		TTTAATAACCCTATATAATTTCTACTTTTTTGATTA	
---------	------------------------------------	--------------------------
-Repeats: 9	Average Length: 36		Average Length: 26
+    // Time to find repeats: 22 ms";
+    //     }
 
-CRISPR 4   Range: 157550 - 157915
-POSITION	REPEAT				SPACER
---------	------------------------------------	------------------------------
-157550		GTTTTACTACCTTATAGATTTACACTATTCTCAAAC	GAGGGGTTGTCCTTCATGTACTCTTTACCT	[ 36, 30 ]
-157748		GTTTTACTACCTTATAGATTTACACTATTCTCAAAC	GGGCTTATACTCTGACTTTCAACAAGTTAG	[ 36, 30 ]
-157814		GTTTTACTACCTTATAGATTTACACTATTCTCAAAC	CCGATTTTTTCATTGCCAAAACGATATTTT	[ 36, 30 ]
-157880		GTTTTACTACCTTATAGATTTACACTATTCTCAAAC	
---------	------------------------------------	------------------------------
-Repeats: 6	Average Length: 36		Average Length: 30
+    //     #[test]
+    //     fn test_parse_array() {
+    //         let input = r"Sequence 'GUT_GENOME226819_47' (4332 bp)
 
-Time to find repeats: 22 ms";
-    }
+    // CRISPR 1   Range: 1214 - 1776
+    // POSITION        REPEAT                          SPACER
+    // --------        -----------------------------   -----------------------------------------------
+    // 1214            TGGTTTAGTTTTAGATGATTCTACTTTTA   CTAATAACACTGCTAAGATTGGTGGTGCAATTTATAACTCTGCTGA  [ 29, 46 ]
+    // 1289            TTGCTTTGTTGTAGGTAATTCTACTTTTG   CTAATAACACTGCTACAAGTAATGGTGGAGTAATCTTTAATTATGGTAT       [ 29, 49 ]
+    // 1367            TGGTTTTGTTGTAGGTAATTCTACTTTTG   TGAATAATAGTGCTGCAGACGGTGCTGGTGCAATCCTGAATGGTGGCCG       [ 29, 49 ]
+    // 1445            TGGTTTTGTTGTAGGTAATTCTACTTTTG   CTAATAACACTGCTACAAGTAAAGGTGGTGCCATTTATAATTATGGTAT       [ 29, 49 ]
+    // 1523            TGGTTTTGTTGTAGGTAATTCTACTTTTG   CTAATAACACTGCAGAAGATGCCGGTGCAGTTTATAATGAGGGTGA  [ 29, 46 ]
+    // 1598            TAACTCTGTTGTAGGTAATTCTACTTTTG   TTAATAATACTGCAACTTCAATAGGTGGAGCTATAATTAATAATGG  [ 29, 46 ]
+    // 1673            TAAATTAGTAGTTGATAATTCTGCATTTG   AAGATAATGCTGCTAATTATTATGGTGGAGCTATCTTTAACTGGGA  [ 29, 46 ]
+    // 1748            TGATTTACAAGTTACTAACTCTGCATTTG
+    // --------        -----------------------------   -----------------------------------------------
+    // Repeats: 8      Average Length: 29              Average Length: 47
 
-    #[test]
-    fn test_parse_array() {
-        let input = r"Sequence 'GUT_GENOME226819_47' (4332 bp)
-
-CRISPR 1   Range: 1214 - 1776
-POSITION        REPEAT                          SPACER
---------        -----------------------------   -----------------------------------------------
-1214            TGGTTTAGTTTTAGATGATTCTACTTTTA   CTAATAACACTGCTAAGATTGGTGGTGCAATTTATAACTCTGCTGA  [ 29, 46 ]
-1289            TTGCTTTGTTGTAGGTAATTCTACTTTTG   CTAATAACACTGCTACAAGTAATGGTGGAGTAATCTTTAATTATGGTAT       [ 29, 49 ]
-1367            TGGTTTTGTTGTAGGTAATTCTACTTTTG   TGAATAATAGTGCTGCAGACGGTGCTGGTGCAATCCTGAATGGTGGCCG       [ 29, 49 ]
-1445            TGGTTTTGTTGTAGGTAATTCTACTTTTG   CTAATAACACTGCTACAAGTAAAGGTGGTGCCATTTATAATTATGGTAT       [ 29, 49 ]
-1523            TGGTTTTGTTGTAGGTAATTCTACTTTTG   CTAATAACACTGCAGAAGATGCCGGTGCAGTTTATAATGAGGGTGA  [ 29, 46 ]
-1598            TAACTCTGTTGTAGGTAATTCTACTTTTG   TTAATAATACTGCAACTTCAATAGGTGGAGCTATAATTAATAATGG  [ 29, 46 ]
-1673            TAAATTAGTAGTTGATAATTCTGCATTTG   AAGATAATGCTGCTAATTATTATGGTGGAGCTATCTTTAACTGGGA  [ 29, 46 ]
-1748            TGATTTACAAGTTACTAACTCTGCATTTG
---------        -----------------------------   -----------------------------------------------
-Repeats: 8      Average Length: 29              Average Length: 47
-
-Time to find repeats: 10 ms";
-        let expected = Array {
-            order: 1,
-            start: 1213,
-            end: 1776,
-            accession: "GUT_GENOME226819_47",
-            bp: 4332,
-            repeat_spacers: vec![
-                RepeatSpacer {
-                    repeat: "TGGTTTAGTTTTAGATGATTCTACTTTTA",
-                    spacer: Some("CTAATAACACTGCTAAGATTGGTGGTGCAATTTATAACTCTGCTGA"),
-                    start: 1213,
-                    end: 1213 + 29 + 46 + 1,
-                },
-                RepeatSpacer {
-                    repeat: "TTGCTTTGTTGTAGGTAATTCTACTTTTG",
-                    spacer: Some("CTAATAACACTGCTACAAGTAATGGTGGAGTAATCTTTAATTATGGTAT"),
-                    start: 1288,
-                    end: 1288 + 29 + 49 + 1,
-                },
-                RepeatSpacer {
-                    repeat: "TGGTTTTGTTGTAGGTAATTCTACTTTTG",
-                    spacer: Some("TGAATAATAGTGCTGCAGACGGTGCTGGTGCAATCCTGAATGGTGGCCG"),
-                    start: 1366,
-                    end: 1366 + 29 + 49 + 1,
-                },
-                RepeatSpacer {
-                    repeat: "TGGTTTTGTTGTAGGTAATTCTACTTTTG",
-                    spacer: Some("CTAATAACACTGCTACAAGTAAAGGTGGTGCCATTTATAATTATGGTAT"),
-                    start: 1444,
-                    end: 1444 + 29 + 49 + 1,
-                },
-                RepeatSpacer {
-                    repeat: "TGGTTTTGTTGTAGGTAATTCTACTTTTG",
-                    spacer: Some("CTAATAACACTGCAGAAGATGCCGGTGCAGTTTATAATGAGGGTGA"),
-                    start: 1522,
-                    end: 1522 + 29 + 46 + 1,
-                },
-                RepeatSpacer {
-                    repeat: "TAACTCTGTTGTAGGTAATTCTACTTTTG",
-                    spacer: Some("TTAATAATACTGCAACTTCAATAGGTGGAGCTATAATTAATAATGG"),
-                    start: 1597,
-                    end: 1597 + 29 + 46 + 1,
-                },
-                RepeatSpacer {
-                    repeat: "TAAATTAGTAGTTGATAATTCTGCATTTG",
-                    spacer: Some("AAGATAATGCTGCTAATTATTATGGTGGAGCTATCTTTAACTGGGA"),
-                    start: 1672,
-                    end: 1672 + 29 + 46 + 1,
-                },
-                RepeatSpacer {
-                    repeat: "TGATTTACAAGTTACTAACTCTGCATTTG",
-                    spacer: None,
-                    start: 1747,
-                    end: 1747 + 29 + 1,
-                },
-            ],
-        };
-        let (_, actual) = parse_array(input).unwrap();
-        assert_eq!(expected, actual);
-    }
+    // Time to find repeats: 10 ms";
+    //         let expected = Array {
+    //             order: 1,
+    //             start: 1213,
+    //             end: 1776,
+    //             accession: "GUT_GENOME226819_47",
+    //             bp: 4332,
+    //             repeat_spacers: vec![
+    //                 RepeatSpacer {
+    //                     repeat: "TGGTTTAGTTTTAGATGATTCTACTTTTA",
+    //                     spacer: Some("CTAATAACACTGCTAAGATTGGTGGTGCAATTTATAACTCTGCTGA"),
+    //                     start: 1213,
+    //                     end: 1213 + 29 + 46 + 1,
+    //                 },
+    //                 RepeatSpacer {
+    //                     repeat: "TTGCTTTGTTGTAGGTAATTCTACTTTTG",
+    //                     spacer: Some("CTAATAACACTGCTACAAGTAATGGTGGAGTAATCTTTAATTATGGTAT"),
+    //                     start: 1288,
+    //                     end: 1288 + 29 + 49 + 1,
+    //                 },
+    //                 RepeatSpacer {
+    //                     repeat: "TGGTTTTGTTGTAGGTAATTCTACTTTTG",
+    //                     spacer: Some("TGAATAATAGTGCTGCAGACGGTGCTGGTGCAATCCTGAATGGTGGCCG"),
+    //                     start: 1366,
+    //                     end: 1366 + 29 + 49 + 1,
+    //                 },
+    //                 RepeatSpacer {
+    //                     repeat: "TGGTTTTGTTGTAGGTAATTCTACTTTTG",
+    //                     spacer: Some("CTAATAACACTGCTACAAGTAAAGGTGGTGCCATTTATAATTATGGTAT"),
+    //                     start: 1444,
+    //                     end: 1444 + 29 + 49 + 1,
+    //                 },
+    //                 RepeatSpacer {
+    //                     repeat: "TGGTTTTGTTGTAGGTAATTCTACTTTTG",
+    //                     spacer: Some("CTAATAACACTGCAGAAGATGCCGGTGCAGTTTATAATGAGGGTGA"),
+    //                     start: 1522,
+    //                     end: 1522 + 29 + 46 + 1,
+    //                 },
+    //                 RepeatSpacer {
+    //                     repeat: "TAACTCTGTTGTAGGTAATTCTACTTTTG",
+    //                     spacer: Some("TTAATAATACTGCAACTTCAATAGGTGGAGCTATAATTAATAATGG"),
+    //                     start: 1597,
+    //                     end: 1597 + 29 + 46 + 1,
+    //                 },
+    //                 RepeatSpacer {
+    //                     repeat: "TAAATTAGTAGTTGATAATTCTGCATTTG",
+    //                     spacer: Some("AAGATAATGCTGCTAATTATTATGGTGGAGCTATCTTTAACTGGGA"),
+    //                     start: 1672,
+    //                     end: 1672 + 29 + 46 + 1,
+    //                 },
+    //                 RepeatSpacer {
+    //                     repeat: "TGATTTACAAGTTACTAACTCTGCATTTG",
+    //                     spacer: None,
+    //                     start: 1747,
+    //                     end: 1747 + 29 + 1,
+    //                 },
+    //             ],
+    //         };
+    //         let (_, actual) = parse_array(input).unwrap();
+    //         assert_eq!(expected, actual);
+    //     }
 }
