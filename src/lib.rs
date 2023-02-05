@@ -5,7 +5,7 @@
 //! ## Example
 //!
 //! ```rust
-//! use minced::parse;
+//! use minced_parser::parse;
 //! use std::fs::File;
 //! use std::io::{BufReader, Read};
 //!

@@ -1,10 +1,10 @@
 [package]
-name = "minced"
+name = "minced-parser"
 authors = ["Jim Rybarski <jim@rybarski.com>"]
 description = "A parser for the output of the MinCED CRISPR array annotation tool"
 readme = "README.md"
-homepage = "https://github.com/jimrybarski/minced"
-repository = "https://github.com/jimrybarski/minced"
+homepage = "https://github.com/jimrybarski/minced-parser"
+repository = "https://github.com/jimrybarski/minced-parser"
 license = "MIT"
 keywords = ["minced", "CRISPR", "bioinformatics"]
 categories = ["parsing", "science"]
