@@ -1,6 +1,23 @@
 #![deny(warnings, missing_docs)]
-//! Parses the output produced by MinCED (https://github.com/ctSkennerton/minced), a CRISPR array
+//! Parses the output produced by MinCED (<https://github.com/ctSkennerton/minced>), a CRISPR array
 //! annotation tool.
+//!
+//! ## Example
+//!
+//! ```rust
+//! use minced::parse;
+//! use std::fs::File;
+//! use std::io::{BufReader, Read};
+//!
+//! let file = File::open("examples/minced.txt").unwrap();
+//! let mut reader = BufReader::new(file);
+//! let mut input = String::new();
+//! reader.read_to_string(&mut input).unwrap();
+//! let contigs = parse(&input).unwrap();
+//! for contig in contigs {
+//!     println!("{} has {} arrays", contig.accession, contig.arrays.len());
+//! }
+//! ```
 
 use nom::{
     branch::alt,
@@ -16,17 +33,17 @@ use nom::{
 /// A single repeat and spacer.
 pub struct RepeatSpacer<'a> {
     /// Sequence of the repeat.
-    repeat: &'a str,
+    pub repeat: &'a str,
     /// Sequence of the spacer. This will be `None` for the final repeat of the array.
-    spacer: Option<&'a str>,
+    pub spacer: Option<&'a str>,
     /// Zero-indexed inclusive start coordinate.
-    start: usize,
+    pub start: usize,
     /// Zero-indexed exclusive end coordinate.
-    end: usize,
+    pub end: usize,
 }
 
 #[derive(Debug, PartialEq)]
-/// A single CRISPR arrays
+/// A single CRISPR array.
 pub struct Array<'a> {
     /// The nth CRISPR array in this genome/contig.
     pub order: usize,
