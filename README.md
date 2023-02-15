@@ -5,7 +5,7 @@ A Rust parser for the [MinCED](https://github.com/ctSkennerton/minced) CRISPR ar
 
 Add the following to Cargo.toml:
 
-`minced-parser = 1.0.0`
+`minced-parser = 2.0.0`
 
 ### Usage
 
@@ -24,3 +24,7 @@ fn main() {
     }
 }
 ```
+
+### Documentation
+
+Docs are hosted [here](https://docs.rs/minced-parser/latest/minced_parser/).

@@ -34,12 +34,40 @@ use nom::{
 pub struct RepeatSpacer<'a> {
     /// Sequence of the repeat.
     pub repeat: &'a str,
-    /// Sequence of the spacer. This will be `None` for the final repeat of the array.
-    pub spacer: Option<&'a str>,
+    /// Sequence of the spacer.
+    pub spacer: &'a str,
     /// Zero-indexed inclusive start coordinate.
     pub start: usize,
     /// Zero-indexed exclusive end coordinate.
     pub end: usize,
+    /// Zero-indexed inclusive start coordinate of the spacer.
+    pub spacer_start: usize,
+    /// Zero-indexed exclusive end coordinate of the spacer.
+    pub spacer_end: usize,
+    /// Zero-indexed inclusive start coordinate of the repeat.
+    pub repeat_start: usize,
+    /// Zero-indexed exclusive end coordinate of the repeat.
+    pub repeat_end: usize,
+}
+
+#[derive(Debug, PartialEq)]
+/// A single repeat, without a spacer. This is the last repeat in the CRISPR array.
+pub struct RepeatOnly<'a> {
+    /// Sequence of the repeat.
+    pub repeat: &'a str,
+    /// Zero-indexed inclusive start coordinate.
+    pub start: usize,
+    /// Zero-indexed exclusive end coordinate.
+    pub end: usize,
+}
+
+/// Represents one component of a CRISPR array.
+#[derive(Debug, PartialEq)]
+pub enum Repeat<'a> {
+    /// A repeat with a spacer
+    WithSpacer(RepeatSpacer<'a>),
+    /// A repeat without a spacer (the last repeat in the array)
+    WithoutSpacer(RepeatOnly<'a>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -52,7 +80,7 @@ pub struct Array<'a> {
     /// Zero-indexed exclusive end coordinate.
     pub end: usize,
     /// All of the repeat-spacer pairs in this CRISPR array.
-    pub repeat_spacers: Vec<RepeatSpacer<'a>>,
+    pub repeat_spacers: Vec<Repeat<'a>>,
 }
 
 #[derive(Debug)]
@@ -201,24 +229,23 @@ fn parse_accession_line(input: &str) -> IResult<&str, (&str, usize)> {
 }
 
 /// Parses a single repeat/spacer line
-fn parse_repeat_spacer_line(input: &str) -> IResult<&str, RepeatSpacer> {
+fn parse_repeat_spacer_line(input: &str) -> IResult<&str, Repeat> {
     alt((parse_repeat_with_spacer, parse_repeat_only))(input)
 }
 
 /// Parses a repeat entry that has no spacer. This is always the final repeat in the array.
-fn parse_repeat_only(input: &str) -> IResult<&str, RepeatSpacer> {
+fn parse_repeat_only(input: &str) -> IResult<&str, Repeat> {
     let result = tuple((digit1, multispace1, alpha1, multispace1))(input);
     match result {
         Ok((remaining, (raw_start, _, repeat, _))) => {
             let start = raw_start.parse::<usize>().unwrap() - 1;
             Ok((
                 remaining,
-                RepeatSpacer {
+                Repeat::WithoutSpacer(RepeatOnly {
                     repeat,
-                    spacer: None,
                     start,
                     end: start + repeat.len(),
-                },
+                }),
             ))
         }
         Err(e) => Err(e),
@@ -226,7 +253,7 @@ fn parse_repeat_only(input: &str) -> IResult<&str, RepeatSpacer> {
 }
 
 /// Parses a repeat and spacer entry.
-fn parse_repeat_with_spacer(input: &str) -> IResult<&str, RepeatSpacer> {
+fn parse_repeat_with_spacer(input: &str) -> IResult<&str, Repeat> {
     let result = tuple((
         digit1,
         multispace1,
@@ -241,12 +268,16 @@ fn parse_repeat_with_spacer(input: &str) -> IResult<&str, RepeatSpacer> {
             let start = raw_start.parse::<usize>().unwrap() - 1;
             Ok((
                 remaining,
-                RepeatSpacer {
+                Repeat::WithSpacer(RepeatSpacer {
                     repeat,
-                    spacer: Some(spacer),
+                    spacer,
                     start,
                     end: start + repeat.len() + spacer.len(),
-                },
+                    repeat_start: start,
+                    repeat_end: start + repeat.len(),
+                    spacer_start: start + repeat.len(),
+                    spacer_end: start + repeat.len() + spacer.len(),
+                }),
             ))
         }
         Err(e) => Err(e),
@@ -272,24 +303,31 @@ Repeats: 3      Average Length: 29              Average Length: 40\n";
             start: 10647,
             end: 10814,
             repeat_spacers: vec![
-                RepeatSpacer {
+                Repeat::WithSpacer(RepeatSpacer {
                     start: 10647,
                     end: 10722,
+                    repeat_start: 10647,
+                    repeat_end: 10676,
+                    spacer_start: 10676,
+                    spacer_end: 10722,
                     repeat: "CAAGTGCACCAACCAATCTCACCACCTCA",
-                    spacer: Some("GGGGGTGCACTTAAAGGGGGTGCACTTGTCTCAAGTGCACCAAGAA"),
-                },
-                RepeatSpacer {
+                    spacer: "GGGGGTGCACTTAAAGGGGGTGCACTTGTCTCAAGTGCACCAAGAA",
+                }),
+                Repeat::WithSpacer(RepeatSpacer {
                     start: 10722,
                     end: 10785,
+                    repeat_start: 10722,
+                    repeat_end: 10751,
+                    spacer_start: 10751,
+                    spacer_end: 10785,
                     repeat: "CAAGTGCACCAACCAATCTCACCACCTCA",
-                    spacer: Some("CCATCTCACCACCTCTCAGGGGGTGCAGTTGTCT"),
-                },
-                RepeatSpacer {
+                    spacer: "CCATCTCACCACCTCTCAGGGGGTGCAGTTGTCT",
+                }),
+                Repeat::WithoutSpacer(RepeatOnly {
                     start: 10785,
                     end: 10814,
                     repeat: "CAAGTGCACCAACCAATCTCACCACCTCA",
-                    spacer: None,
-                },
+                }),
             ],
         };
         let (_, actual) = parse_array(input).unwrap();
@@ -317,25 +355,42 @@ Repeats: 3      Average Length: 29              Average Length: 40\n";
         let input = "10723           CAAGTGCACCAACCAATCTCACCACCTCA   CCATCTCACCACCTCTCAGGGGGTGCAGTTGTCT      [ 29, 34 ]\n";
         let expected = RepeatSpacer {
             repeat: "CAAGTGCACCAACCAATCTCACCACCTCA",
-            spacer: Some("CCATCTCACCACCTCTCAGGGGGTGCAGTTGTCT"),
+            spacer: "CCATCTCACCACCTCTCAGGGGGTGCAGTTGTCT",
             start: 10722,
             end: 10785,
+            repeat_start: 10722,
+            repeat_end: 10751,
+            spacer_start: 10751,
+            spacer_end: 10785,
         };
         let (_, actual) = parse_repeat_spacer_line(input).unwrap();
-        assert_eq!(expected, actual);
+        match actual {
+            Repeat::WithSpacer(act) => {
+                assert_eq!(expected, act);
+            }
+            _ => {
+                unreachable!()
+            }
+        }
     }
 
     #[test]
     fn test_parse_repeat_only_line() {
         let input = "10786		CAAGTGCACCAACCAATCTCACCACCTCA\n";
-        let expected = RepeatSpacer {
+        let expected = RepeatOnly {
             repeat: "CAAGTGCACCAACCAATCTCACCACCTCA",
-            spacer: None,
             start: 10785,
             end: 10814,
         };
         let (_, actual) = parse_repeat_spacer_line(input).unwrap();
-        assert_eq!(expected, actual);
+        match actual {
+            Repeat::WithoutSpacer(act) => {
+                assert_eq!(expected, act);
+            }
+            _ => {
+                unreachable!()
+            }
+        }
     }
 
     #[test]
