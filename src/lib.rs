@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 #![deny(warnings, missing_docs)]
 //! Parses the output produced by MinCED (<https://github.com/ctSkennerton/minced>), a CRISPR array
 //! annotation tool.
